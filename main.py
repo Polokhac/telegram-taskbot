@@ -758,36 +758,38 @@ async def job_weekly_report(app):
 async def post_init(app: Application) -> None:
     """
     Called by python-telegram-bot AFTER the event loop is running.
-    Safe place to start AsyncIOScheduler — avoids the Python 3.10+
-    'no current event loop in thread MainThread' RuntimeError.
+    Safe place to start AsyncIOScheduler.
     """
-    scheduler = AsyncIOScheduler(timezone=str(TIMEZONE))
+    try:
+        scheduler = AsyncIOScheduler(timezone=str(TIMEZONE))
 
-    scheduler.add_job(
-        job_deadline_reminder,
-        "cron",
-        hour=8,
-        minute=0,
-        args=[app],
-    )
-    scheduler.add_job(
-        job_daily_report,
-        "cron",
-        hour=18,
-        minute=0,
-        args=[app],
-    )
-    scheduler.add_job(
-        job_weekly_report,
-        "cron",
-        day_of_week="fri",
-        hour=17,
-        minute=0,
-        args=[app],
-    )
+        scheduler.add_job(
+            job_deadline_reminder,
+            "cron",
+            hour=8,
+            minute=0,
+            args=[app],
+        )
+        scheduler.add_job(
+            job_daily_report,
+            "cron",
+            hour=18,
+            minute=0,
+            args=[app],
+        )
+        scheduler.add_job(
+            job_weekly_report,
+            "cron",
+            day_of_week="fri",
+            hour=17,
+            minute=0,
+            args=[app],
+        )
 
-    scheduler.start()
-    logger.info("Scheduler started inside running event loop ✅")
+        scheduler.start()
+        logger.info("Scheduler started inside running event loop ✅")
+    except Exception as e:
+        logger.error(f"Failed to start scheduler: {e}")
 
 
 def main():
@@ -797,6 +799,7 @@ def main():
         Application.builder()
         .token(BOT_TOKEN)
         .post_init(post_init)   # ← scheduler starts here, inside the loop
+        .job_queue(None)        # ← tắt job queue mặc định, tránh xung đột APScheduler
         .build()
     )
 
@@ -822,7 +825,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Bot started. Polling...")
-    app.run_polling(drop_pending_updates=True)
+    app.run_polling(drop_pending_updates=True, stop_signals=None)
 
 
 if __name__ == "__main__":
