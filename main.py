@@ -755,10 +755,50 @@ async def job_weekly_report(app):
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 
+async def post_init(app: Application) -> None:
+    """
+    Called by python-telegram-bot AFTER the event loop is running.
+    Safe place to start AsyncIOScheduler — avoids the Python 3.10+
+    'no current event loop in thread MainThread' RuntimeError.
+    """
+    scheduler = AsyncIOScheduler(timezone=str(TIMEZONE))
+
+    scheduler.add_job(
+        job_deadline_reminder,
+        "cron",
+        hour=8,
+        minute=0,
+        args=[app],
+    )
+    scheduler.add_job(
+        job_daily_report,
+        "cron",
+        hour=18,
+        minute=0,
+        args=[app],
+    )
+    scheduler.add_job(
+        job_weekly_report,
+        "cron",
+        day_of_week="fri",
+        hour=17,
+        minute=0,
+        args=[app],
+    )
+
+    scheduler.start()
+    logger.info("Scheduler started inside running event loop ✅")
+
+
 def main():
     init_db()
 
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .post_init(post_init)   # ← scheduler starts here, inside the loop
+        .build()
+    )
 
     # Commands
     app.add_handler(CommandHandler("start", cmd_start))
@@ -780,22 +820,6 @@ def main():
     # Callbacks & messages
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    # Scheduler
-    scheduler = AsyncIOScheduler(timezone=str(TIMEZONE))
-    scheduler.add_job(
-        lambda: app.create_task(job_deadline_reminder(app)),
-        "cron", hour=8, minute=0,
-    )
-    scheduler.add_job(
-        lambda: app.create_task(job_daily_report(app)),
-        "cron", hour=18, minute=0,
-    )
-    scheduler.add_job(
-        lambda: app.create_task(job_weekly_report(app)),
-        "cron", day_of_week="fri", hour=17, minute=0,
-    )
-    scheduler.start()
 
     logger.info("Bot started. Polling...")
     app.run_polling(drop_pending_updates=True)
